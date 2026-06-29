@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import { UserIcon, PhoneIcon, MapPinIcon, ScaleIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
+import LocationPicker from '../components/LocationPicker'
+
+// Nomor WA admin format internasional tanpa + (contoh: 6281234567890)
+const ADMIN_WA_NUMBER = import.meta.env.VITE_ADMIN_WA || '6281234567890'
 
 const Customer = () => {
   const navigate = useNavigate()
@@ -11,8 +15,10 @@ const Customer = () => {
   const [servicesLoading, setServicesLoading] = useState(true)
   const [form, setForm] = useState({
     customer_name: '', customer_phone: '', customer_address: '',
-    service_id: '', weight: '', note: ''
+    service_id: '', weight: '', note: '',
+    latitude: null, longitude: null, location_url: ''
   })
+  const [orderCode, setOrderCode] = useState('')
 
   useEffect(() => {
     api.get('/services')
@@ -29,6 +35,16 @@ const Customer = () => {
     ? selectedService.price_per_kg * parseFloat(form.weight)
     : null
 
+  const handleLocationSelect = (locationData) => {
+    setForm(prev => ({
+      ...prev,
+      customer_address: locationData.address,
+      latitude: locationData.lat,
+      longitude: locationData.lng,
+      location_url: locationData.googleMapsUrl
+    }))
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -39,8 +55,30 @@ const Customer = () => {
         service_id: parseInt(form.service_id),
         order_source: 'website'
       })
-      toast.success(`Order berhasil! Kode: ${response.data.code}`)
-      navigate(`/customer/track/${response.data.code}`)
+      const code = response.data.code
+      setOrderCode(code)
+      toast.success(`Order berhasil! Kode: ${code}`)
+
+      // Auto buka WA admin dengan detail order + lokasi
+      const nama = form.customer_name
+      const layanan = services.find(s => s.id === parseInt(form.service_id))?.name || ''
+      const harga = response.data.order?.total_price || estimatedPrice
+      const lokasiInfo = form.location_url
+        ? `\n📍 *Lokasi Penjemputan:*\n${form.location_url}`
+        : form.customer_address ? `\n📍 *Alamat:* ${form.customer_address}` : ''
+      const message =
+        `Halo Admin LaundryFlow 🧺\n\n` +
+        `Pesanan baru masuk dari *${nama}*!\n` +
+        `Kode Order: *${code}*\n` +
+        `Layanan: ${layanan}\n` +
+        `Berat: ${form.weight} kg\n` +
+        `Total: Rp${Number(harga).toLocaleString('id-ID')}` +
+        lokasiInfo +
+        `\n\nMohon segera diproses. Terima kasih! 🙏`
+      const waUrl = `https://wa.me/${ADMIN_WA_NUMBER}?text=${encodeURIComponent(message)}`
+      window.open(waUrl, '_blank')
+
+      navigate(`/customer/track/${code}`)
     } catch (error) {
       toast.error(error.response?.data?.error || 'Gagal membuat order')
     } finally {
@@ -114,14 +152,31 @@ const Customer = () => {
                 <label className="label flex items-center gap-1.5">
                   <MapPinIcon className="w-3.5 h-3.5 text-gray-400" /> Alamat Pickup
                 </label>
+                {/* Fitur Share Lokasi GPS ke WA Admin */}
+                <div className="mb-2">
+                  <LocationPicker
+                    onLocationSelect={handleLocationSelect}
+                    adminPhone={ADMIN_WA_NUMBER}
+                    orderCode={orderCode}
+                    customerName={form.customer_name}
+                  />
+                </div>
                 <textarea
                   value={form.customer_address}
                   onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
                   className="input resize-none"
                   rows="2"
-                  placeholder="Alamat lengkap untuk penjemputan"
+                  placeholder="Atau isi alamat lengkap manual untuk penjemputan"
                   required
                 />
+                {form.location_url && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    📍 Koordinat GPS tersimpan &mdash;
+                    <a href={form.location_url} target="_blank" rel="noopener noreferrer" className="underline">
+                      Lihat di Maps
+                    </a>
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">

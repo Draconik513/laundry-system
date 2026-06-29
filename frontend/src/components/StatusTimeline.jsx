@@ -1,7 +1,7 @@
 import React from 'react'
 import { CheckIcon, XMarkIcon } from '@heroicons/react/24/solid'
 
-const statuses = [
+const allStatuses = [
   { key: 'pending_pickup', label: 'Pickup', icon: '📦' },
   { key: 'picked_up', label: 'Dijemput', icon: '🚐' },
   { key: 'washing', label: 'Dicuci', icon: '🫧' },
@@ -11,7 +11,16 @@ const statuses = [
   { key: 'completed', label: 'Selesai', icon: '✅' },
 ]
 
-const StatusTimeline = ({ currentStatus }) => {
+const walkInStatuses = [
+  { key: 'washing', label: 'Dicuci', icon: '🫧' },
+  { key: 'drying', label: 'Kering', icon: '💨' },
+  { key: 'ironing', label: 'Setrika', icon: '👕' },
+  { key: 'ready_for_delivery', label: 'Siap Diambil', icon: '📫' },
+  { key: 'completed', label: 'Selesai', icon: '✅' },
+]
+
+const StatusTimeline = ({ currentStatus, orderSource }) => {
+  const statuses = orderSource === 'walk_in' ? walkInStatuses : allStatuses
   if (currentStatus === 'cancelled') {
     return (
       <div className="flex items-center gap-3 py-4 px-4 bg-red-50 rounded-xl">

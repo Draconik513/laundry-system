@@ -12,13 +12,16 @@ import (
 )
 
 type CustomerOrderRequest struct {
-	CustomerName    string  `json:"customer_name" binding:"required"`
-	CustomerPhone   string  `json:"customer_phone" binding:"required"`
-	CustomerAddress string  `json:"customer_address" binding:"required"`
-	ServiceID       int     `json:"service_id" binding:"required"`
-	Weight          float64 `json:"weight" binding:"required"`
-	Note            string  `json:"note"`
-	OrderSource     string  `json:"order_source"`
+	CustomerName    string   `json:"customer_name" binding:"required"`
+	CustomerPhone   string   `json:"customer_phone" binding:"required"`
+	CustomerAddress string   `json:"customer_address" binding:"required"`
+	Latitude        *float64 `json:"latitude"`
+	Longitude       *float64 `json:"longitude"`
+	LocationURL     string   `json:"location_url"`
+	ServiceID       int      `json:"service_id" binding:"required"`
+	Weight          float64  `json:"weight" binding:"required"`
+	Note            string   `json:"note"`
+	OrderSource     string   `json:"order_source"`
 }
 
 type CustomerOrderResponse struct {
@@ -56,6 +59,12 @@ func CreateCustomerOrder(db *sql.DB) gin.HandlerFunc {
 			req.OrderSource = "website"
 		}
 
+		// Gabungkan alamat dengan info GPS jika ada
+		addressWithGPS := req.CustomerAddress
+		if req.LocationURL != "" {
+			addressWithGPS = req.CustomerAddress + " | GPS: " + req.LocationURL
+		}
+
 		// Cari customer yang sudah ada berdasarkan nomor HP, kalau tidak ada buat baru
 		var customerID int64
 		if req.CustomerPhone != "" {
@@ -63,13 +72,15 @@ func CreateCustomerOrder(db *sql.DB) gin.HandlerFunc {
 			err := db.QueryRow(`SELECT id FROM customers WHERE phone = ?`, req.CustomerPhone).Scan(&existingID)
 			if err == nil {
 				customerID = int64(existingID)
+				// Update alamat customer dengan GPS terbaru
+				db.Exec(`UPDATE customers SET address = ? WHERE id = ?`, addressWithGPS, existingID)
 			}
 		}
 
 		if customerID == 0 {
 			result, err := db.Exec(
 				`INSERT INTO customers (name, phone, address) VALUES (?, ?, ?)`,
-				req.CustomerName, req.CustomerPhone, req.CustomerAddress,
+				req.CustomerName, req.CustomerPhone, addressWithGPS,
 			)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create customer"})
@@ -111,7 +122,7 @@ func CreateCustomerOrder(db *sql.DB) gin.HandlerFunc {
 			Code:            code,
 			CustomerName:    req.CustomerName,
 			CustomerPhone:   req.CustomerPhone,
-			CustomerAddress: req.CustomerAddress,
+			CustomerAddress: addressWithGPS,
 			Weight:          req.Weight,
 			TotalPrice:      totalPrice,
 			Status:          "pending_pickup",

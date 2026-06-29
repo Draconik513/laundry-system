@@ -41,11 +41,18 @@ const CustomerTracking = () => {
     }
   }
 
+  const isWalkIn = order?.order_source === 'walk_in'
+
   const statusLabels = {
     pending_pickup: 'Menunggu Pickup', picked_up: 'Dijemput', washing: 'Dicuci',
-    drying: 'Dikeringkan', ironing: 'Disetrika', ready_for_delivery: 'Siap Diantar',
+    drying: 'Dikeringkan', ironing: 'Disetrika', ready_for_delivery: 'Siap Diambil',
     completed: 'Selesai', cancelled: 'Dibatalkan'
   }
+
+  // Filter history untuk walk_in - sembunyikan pending_pickup & picked_up
+  const filteredHistory = history.filter(h =>
+    isWalkIn ? !['pending_pickup', 'picked_up'].includes(h.status) : true
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -159,7 +166,7 @@ const CustomerTracking = () => {
             {/* Status timeline */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <h3 className="font-semibold text-gray-900 mb-4">Progress Laundry</h3>
-              <StatusTimeline currentStatus={order.status} />
+              <StatusTimeline currentStatus={order.status} orderSource={order.order_source} />
             </div>
 
             {/* History */}
@@ -167,7 +174,7 @@ const CustomerTracking = () => {
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                 <h3 className="font-semibold text-gray-900 mb-4">Riwayat Status</h3>
                 <div className="space-y-2">
-                  {history.map((h, idx) => (
+                  {filteredHistory.map((h, idx) => (
                     <div key={idx} className="flex items-center gap-3 text-sm">
                       <div className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
                       <span className="text-gray-400 text-xs w-36 flex-shrink-0">

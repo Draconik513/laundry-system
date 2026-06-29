@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon, TrashIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, TrashIcon, CheckCircleIcon, ShareIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline'
 import StatusTimeline from '../components/StatusTimeline'
 import api from '../services/api'
 import toast from 'react-hot-toast'
@@ -60,6 +60,24 @@ const OrderDetail = () => {
     }
   }
 
+  const sendWhatsApp = (orderData, newStatus) => {
+    if (!orderData?.customer_phone) return
+    const phone = orderData.customer_phone.replace(/^0/, '62').replace(/[^0-9]/g, '')
+    
+    let message = ''
+    if (newStatus === 'completed') {
+      message = `✅ *Laundry Selesai!*\n\nHalo *${orderData.customer_name}*,\n\nLaundry Anda sudah selesai dan siap diambil! 🎉\n\n📋 *Detail Order:*\n• Kode: *${orderData.code}*\n• Layanan: ${orderData.service_name}\n• Berat: ${orderData.weight} kg\n• Total: *Rp${orderData.total_price?.toLocaleString('id-ID')}*\n\nTerima kasih telah menggunakan layanan LaundryFlow 🧺`
+    } else if (newStatus === 'ready_for_delivery') {
+      message = `🚗 *Laundry Siap Diantar!*\n\nHalo *${orderData.customer_name}*,\n\nLaundry Anda sudah siap dan sedang dalam perjalanan ke lokasi Anda.\n\n📋 Kode Order: *${orderData.code}*\n\nTerima kasih telah menggunakan layanan LaundryFlow 🧺`
+    } else if (newStatus === 'picked_up') {
+      message = `🧺 *Laundry Sudah Dijemput!*\n\nHalo *${orderData.customer_name}*,\n\nLaundry Anda sudah kami jemput dan sedang diproses.\n\n📋 Kode Order: *${orderData.code}*\n\nCek status kapan saja di: ${window.location.origin}/customer/track/${orderData.code}`
+    }
+
+    if (message) {
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank')
+    }
+  }
+
   const updateStatus = async () => {
     if (selectedStatus === order.status) return
     const label = statusOptions.find(s => s.value === selectedStatus)?.label
@@ -71,6 +89,15 @@ const OrderDetail = () => {
     try {
       await api.put(`/orders/${order.id}/status`, { status: selectedStatus })
       toast.success('Status berhasil diupdate')
+
+      // Auto kirim WA untuk status tertentu
+      if (['completed', 'ready_for_delivery', 'picked_up'].includes(selectedStatus) && order.customer_phone) {
+        const confirmed = window.confirm(`Kirim notifikasi WhatsApp ke ${order.customer_name}?`)
+        if (confirmed) {
+          sendWhatsApp(order, selectedStatus)
+        }
+      }
+
       fetchOrder()
     } catch {
       toast.error('Gagal mengupdate status')
@@ -91,11 +118,39 @@ const OrderDetail = () => {
     }
   }
 
+  const copyCode = () => {
+    navigator.clipboard.writeText(order.code)
+    toast.success('Kode disalin!')
+  }
+
+  const shareTrackingLink = () => {
+    const url = `${window.location.origin}/customer/track/${order.code}`
+    navigator.clipboard.writeText(url)
+    toast.success('Link tracking disalin!')
+  }
+
+  const sendTrackingWA = () => {
+    if (!order?.customer_phone) {
+      toast.error('Nomor WhatsApp tidak tersedia')
+      return
+    }
+    const phone = order.customer_phone.replace(/^0/, '62').replace(/[^0-9]/g, '')
+    const url = `${window.location.origin}/customer/track/${order.code}`
+    const message = `🧺 *Konfirmasi Order Laundry*\n\nHalo *${order.customer_name}*,\n\nPesanan laundry Anda telah kami terima!\n\n📋 *Kode Order:* \`${order.code}\`\n🔗 *Cek Status:* ${url}\n\nSimpan kode ini untuk tracking status laundry Anda kapan saja.\n\nTerima kasih! 😊`
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank')
+  }
+
   if (loading) return (
     <div className="flex justify-center py-20">
       <LoadingSpinner />
     </div>
   )
+
+  const availableStatusOptions = order?.order_source === 'walk_in'
+    ? statusOptions
+        .filter(s => !['pending_pickup', 'picked_up'].includes(s.value))
+        .map(s => s.value === 'ready_for_delivery' ? { ...s, label: 'Siap Diambil' } : s)
+    : statusOptions.map(s => s.value === 'ready_for_delivery' ? { ...s, label: 'Siap Diantar' } : s)
 
   const statusColor = statusColors[order?.status] || 'bg-gray-100 text-gray-600 border-gray-200'
 
@@ -103,10 +158,7 @@ const OrderDetail = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate('/orders')}
-          className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
-        >
+        <button onClick={() => navigate('/orders')} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
           <ArrowLeftIcon className="w-5 h-5 text-gray-600" />
         </button>
         <div className="flex-1 min-w-0">
@@ -123,7 +175,6 @@ const OrderDetail = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main info */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Customer & Order info */}
           <div className="card">
             <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <span className="w-1.5 h-4 bg-blue-500 rounded-full" />
@@ -132,13 +183,14 @@ const OrderDetail = () => {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
               <InfoRow label="Pelanggan" value={order?.customer_name} />
               <InfoRow label="WhatsApp" value={order?.customer_phone} />
-              <InfoRow label="Sumber" value={order?.order_source === 'website' ? '🖥️ Website' : order?.order_source === 'walk_in' ? '🏪 Datang Langsung' : order?.order_source} />
+              <InfoRow label="Sumber" value={
+                order?.order_source === 'website' ? '🖥️ Website' :
+                order?.order_source === 'walk_in' ? '🏪 Datang Langsung' :
+                order?.order_source === 'whatsapp' ? '💬 WhatsApp' : order?.order_source
+              } />
               <InfoRow label="Layanan" value={order?.service_name} />
               <InfoRow label="Berat" value={order?.weight ? `${order.weight} kg` : null} />
-              <InfoRow
-                label="Total Harga"
-                value={order?.total_price ? `Rp${order.total_price.toLocaleString('id-ID')}` : null}
-              />
+              <InfoRow label="Total Harga" value={order?.total_price ? `Rp${order.total_price.toLocaleString('id-ID')}` : null} />
               <div className="col-span-2 sm:col-span-3">
                 <InfoRow label="Alamat" value={order?.customer_address} />
               </div>
@@ -160,13 +212,43 @@ const OrderDetail = () => {
             )}
           </div>
 
+          {/* Kode pesanan untuk customer */}
+          <div className="card border-2 border-blue-100 bg-blue-50/30">
+            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <span className="w-1.5 h-4 bg-blue-500 rounded-full" />
+              Kode Tracking untuk Customer
+            </h3>
+            <div className="flex items-center gap-3 bg-white rounded-xl p-4 border border-blue-100 mb-4">
+              <span className="text-2xl font-bold text-blue-600 tracking-widest font-mono flex-1">{order?.code}</span>
+              <button onClick={copyCode} className="p-2 hover:bg-blue-50 rounded-lg transition-colors" title="Salin kode">
+                <ClipboardDocumentIcon className="w-5 h-5 text-blue-500" />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={shareTrackingLink} className="btn-secondary flex-1 text-sm">
+                <ShareIcon className="w-4 h-4" />
+                Salin Link
+              </button>
+              <button
+                onClick={sendTrackingWA}
+                disabled={!order?.customer_phone}
+                className="flex-1 inline-flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-all disabled:opacity-40"
+              >
+                💬 Kirim via WA
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2 text-center">
+              Customer bisa cek status di: /customer/track/{order?.code}
+            </p>
+          </div>
+
           {/* Status timeline */}
           <div className="card">
             <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <span className="w-1.5 h-4 bg-green-500 rounded-full" />
               Progress Status
             </h3>
-            <StatusTimeline currentStatus={order?.status} />
+            <StatusTimeline currentStatus={order?.status} orderSource={order?.order_source} />
           </div>
 
           {/* History */}
@@ -204,7 +286,7 @@ const OrderDetail = () => {
                 disabled={updating}
                 className="input"
               >
-                {statusOptions.map(opt => (
+                {availableStatusOptions.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
@@ -222,15 +304,44 @@ const OrderDetail = () => {
                   </>
                 )}
               </button>
+              {['completed', 'ready_for_delivery', 'picked_up'].includes(selectedStatus) && order?.customer_phone && selectedStatus !== order?.status && (
+                <p className="text-xs text-center text-green-600">
+                  💬 Notifikasi WA akan ditawarkan setelah disimpan
+                </p>
+              )}
             </div>
           </div>
 
+          {/* Manual WA */}
+          {order?.customer_phone && (
+            <div className="card">
+              <h3 className="font-semibold text-gray-900 mb-3">Notifikasi WhatsApp</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={() => sendWhatsApp(order, 'completed')}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                >
+                  ✅ Laundry Selesai
+                </button>
+                <button
+                  onClick={() => sendWhatsApp(order, 'ready_for_delivery')}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors"
+                >
+                  🚗 Siap Diantar
+                </button>
+                <button
+                  onClick={() => sendWhatsApp(order, 'picked_up')}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                >
+                  🧺 Sudah Dijemput
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <h3 className="font-semibold text-gray-900 mb-3">Zona Bahaya</h3>
-            <button
-              onClick={deleteOrder}
-              className="btn-danger w-full"
-            >
+            <button onClick={deleteOrder} className="btn-danger w-full">
               <TrashIcon className="w-4 h-4" />
               Hapus Order
             </button>
