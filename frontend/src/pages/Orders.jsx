@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { MagnifyingGlassIcon, XMarkIcon, PlusIcon, ClipboardDocumentCheckIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, XMarkIcon, PlusIcon, ClipboardDocumentCheckIcon, ArrowDownTrayIcon, CalendarDaysIcon } from '@heroicons/react/24/outline'
 import OrderTable from '../components/OrderTable'
 import api from '../services/api'
 import toast from 'react-hot-toast'
@@ -22,9 +22,41 @@ const sourceOptions = [
   { value: 'website', label: '🖥️ Website' },
 ]
 
+const statusLabels = {
+  pending_pickup: 'Menunggu Pickup', picked_up: 'Dijemput', washing: 'Dicuci',
+  drying: 'Dikeringkan', ironing: 'Disetrika', ready_for_delivery: 'Siap Diantar',
+  completed: 'Selesai', cancelled: 'Dibatalkan'
+}
+
+const sourceLabels = {
+  website: 'Website', walk_in: 'Datang Langsung', whatsapp: 'WhatsApp'
+}
+
 const emptyForm = {
   customer_name: '', customer_phone: '', customer_address: '',
   service_id: '', weight: '', note: '', order_source: 'walk_in'
+}
+
+// Hitung Senin dan Minggu dari minggu yang dipilih
+const getWeekRange = (offset = 0) => {
+  const now = new Date()
+  const day = now.getDay() // 0=minggu, 1=senin ...
+  const diffToMonday = (day === 0 ? -6 : 1 - day) + offset * 7
+  const monday = new Date(now)
+  monday.setDate(now.getDate() + diffToMonday)
+  monday.setHours(0, 0, 0, 0)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  sunday.setHours(23, 59, 59, 999)
+  return { monday, sunday }
+}
+
+const formatDate = (d) => d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
+const formatDateShort = (d) => {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 const Orders = () => {
@@ -35,12 +67,17 @@ const Orders = () => {
   const [status, setStatus] = useState('all')
   const [date, setDate] = useState('')
 
-  // Modal state
+  // Modal buat pesanan
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [services, setServices] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [successInfo, setSuccessInfo] = useState(null)
+
+  // Modal export
+  const [showExport, setShowExport] = useState(false)
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [exporting, setExporting] = useState(false)
 
   // Debounce search
   useEffect(() => {
@@ -70,9 +107,7 @@ const Orders = () => {
     try {
       const { data } = await api.get('/services')
       setServices(data || [])
-      if (data.length > 0) {
-        setForm(f => ({ ...f, service_id: data[0].id.toString() }))
-      }
+      if (data.length > 0) setForm(f => ({ ...f, service_id: data[0].id.toString() }))
     } catch {
       toast.error('Gagal memuat layanan')
     }
@@ -100,7 +135,7 @@ const Orders = () => {
         weight: parseFloat(form.weight),
         service_id: parseInt(form.service_id),
       })
-      toast.success(`Pesanan berhasil dibuat!`)
+      toast.success('Pesanan berhasil dibuat!')
       setSuccessInfo(data)
       fetchOrders()
     } catch (err) {
@@ -110,19 +145,109 @@ const Orders = () => {
     }
   }
 
+  // ── Export CSV ──
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const { monday, sunday } = getWeekRange(weekOffset)
+
+      // Ambil semua order dalam rentang minggu ini
+      const params = new URLSearchParams()
+      const { data } = await api.get(`/orders?${params}`)
+      const allOrders = data || []
+
+      // Filter sesuai rentang minggu
+      const weekly = allOrders.filter(o => {
+        const d = new Date(o.created_at)
+        return d >= monday && d <= sunday
+      })
+
+      if (weekly.length === 0) {
+        toast.error('Tidak ada pesanan di minggu ini')
+        setExporting(false)
+        return
+      }
+
+      // Buat CSV
+      const headers = [
+        'Kode', 'Nama Pelanggan', 'No. WhatsApp', 'Alamat',
+        'Layanan', 'Berat (kg)', 'Total Harga (Rp)',
+        'Status', 'Sumber', 'Tanggal Order'
+      ]
+
+      const rows = weekly.map(o => [
+        o.code,
+        o.customer_name,
+        o.customer_phone || '-',
+        o.customer_address || '-',
+        o.service_name,
+        o.weight,
+        o.total_price,
+        statusLabels[o.status] || o.status,
+        sourceLabels[o.order_source] || o.order_source,
+        new Date(o.created_at).toLocaleString('id-ID')
+      ])
+
+      // Hitung total
+      const totalPendapatan = weekly.filter(o => o.status === 'completed').reduce((s, o) => s + o.total_price, 0)
+      const totalOrder = weekly.length
+      const selesai = weekly.filter(o => o.status === 'completed').length
+
+      // Tambah summary di bawah
+      const summary = [
+        [],
+        ['RINGKASAN MINGGU'],
+        [`Periode: ${formatDate(monday)} - ${formatDate(sunday)}`],
+        [`Total Pesanan: ${totalOrder}`],
+        [`Pesanan Selesai: ${selesai}`],
+        [`Total Pendapatan: Rp${totalPendapatan.toLocaleString('id-ID')}`],
+      ]
+
+      const csvContent = [
+        [`LAPORAN PESANAN MINGGUAN`],
+        [`Periode: ${formatDate(monday)} s/d ${formatDate(sunday)}`],
+        [],
+        headers,
+        ...rows,
+        ...summary,
+      ]
+        .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n')
+
+      // Download file
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `pesanan-minggu-${formatDateShort(monday)}_${formatDateShort(sunday)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast.success(`${weekly.length} pesanan berhasil diekspor!`)
+      setShowExport(false)
+    } catch {
+      toast.error('Gagal mengekspor data')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const selectedService = services.find(s => s.id === parseInt(form.service_id))
   const estimatedPrice = selectedService && form.weight
     ? selectedService.price_per_kg * parseFloat(form.weight || 0)
     : null
 
   const hasFilter = searchInput || status !== 'all' || date
-
   const clearFilters = () => {
     setSearchInput('')
     setSearch('')
     setStatus('all')
     setDate('')
   }
+
+  const { monday, sunday } = getWeekRange(weekOffset)
 
   return (
     <div className="space-y-6">
@@ -131,10 +256,16 @@ const Orders = () => {
           <h1 className="text-2xl font-bold text-gray-900">Pesanan</h1>
           <p className="text-gray-500 text-sm mt-1">Kelola semua pesanan laundry</p>
         </div>
-        <button onClick={openModal} className="btn-primary">
-          <PlusIcon className="w-4 h-4" />
-          Buat Pesanan
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowExport(true)} className="btn-secondary">
+            <ArrowDownTrayIcon className="w-4 h-4" />
+            Export Mingguan
+          </button>
+          <button onClick={openModal} className="btn-primary">
+            <PlusIcon className="w-4 h-4" />
+            Buat Pesanan
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -153,12 +284,7 @@ const Orders = () => {
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="input sm:w-48">
             {statusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="input sm:w-44"
-          />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input sm:w-44" />
           {hasFilter && (
             <button onClick={clearFilters} className="btn-secondary gap-1.5 whitespace-nowrap">
               <XMarkIcon className="w-4 h-4" />
@@ -184,12 +310,94 @@ const Orders = () => {
         )}
       </div>
 
+      {/* Modal Export */}
+      {showExport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowExport(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Export Pesanan Mingguan</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Unduh data pesanan dalam format CSV</p>
+              </div>
+              <button onClick={() => setShowExport(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <XMarkIcon className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Pilih minggu */}
+              <div>
+                <label className="label flex items-center gap-1.5">
+                  <CalendarDaysIcon className="w-4 h-4 text-gray-400" />
+                  Pilih Minggu
+                </label>
+                <div className="flex items-center gap-3 mt-2">
+                  <button
+                    onClick={() => setWeekOffset(w => w - 1)}
+                    className="p-2 hover:bg-gray-100 rounded-xl border border-gray-200 transition-colors"
+                  >
+                    ←
+                  </button>
+                  <div className="flex-1 text-center bg-blue-50 rounded-xl py-3 px-2">
+                    <p className="text-xs text-blue-500 font-medium">
+                      {weekOffset === 0 ? 'Minggu Ini' : weekOffset === -1 ? 'Minggu Lalu' : `${Math.abs(weekOffset)} Minggu Lalu`}
+                    </p>
+                    <p className="text-sm font-bold text-blue-700 mt-0.5">
+                      {formatDate(monday)}
+                    </p>
+                    <p className="text-xs text-blue-500">s/d {formatDate(sunday)}</p>
+                  </div>
+                  <button
+                    onClick={() => setWeekOffset(w => Math.min(w + 1, 0))}
+                    disabled={weekOffset >= 0}
+                    className="p-2 hover:bg-gray-100 rounded-xl border border-gray-200 transition-colors disabled:opacity-30"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+
+              {/* Info */}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-1.5">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-2">File akan berisi:</p>
+                {[
+                  '✅ Kode & nama pelanggan',
+                  '✅ Layanan, berat & total harga',
+                  '✅ Status & sumber pesanan',
+                  '✅ Tanggal order',
+                  '✅ Ringkasan & total pendapatan',
+                ].map(t => <p key={t} className="text-xs text-gray-500">{t}</p>)}
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setShowExport(false)} className="btn-secondary flex-1">
+                  Batal
+                </button>
+                <button onClick={handleExport} disabled={exporting} className="btn-primary flex-1">
+                  {exporting ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Mengekspor...
+                    </span>
+                  ) : (
+                    <>
+                      <ArrowDownTrayIcon className="w-4 h-4" />
+                      Download CSV
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Buat Pesanan */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={closeModal} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
-            {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Buat Pesanan Baru</h2>
@@ -200,7 +408,6 @@ const Orders = () => {
               </button>
             </div>
 
-            {/* Success state */}
             {successInfo ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
@@ -208,144 +415,69 @@ const Orders = () => {
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 mb-1">Pesanan Berhasil Dicatat!</h3>
                 <p className="text-sm text-gray-500 mb-6">Berikut detail pesanan yang baru dibuat</p>
-
                 <div className="w-full bg-blue-50 rounded-2xl p-5 text-left space-y-3 mb-6">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-500">Kode Pesanan</span>
-                    <span className="text-lg font-bold text-blue-600 tracking-wider font-mono">
-                      {successInfo.code}
-                    </span>
+                    <span className="text-lg font-bold text-blue-600 tracking-wider font-mono">{successInfo.code}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-500">Total Harga</span>
-                    <span className="text-base font-bold text-gray-900">
-                      Rp{successInfo.total_price?.toLocaleString('id-ID')}
-                    </span>
+                    <span className="text-base font-bold text-gray-900">Rp{successInfo.total_price?.toLocaleString('id-ID')}</span>
                   </div>
                 </div>
-
-                <p className="text-xs text-gray-400 mb-6">
-                  Berikan kode ini ke pelanggan untuk tracking status laundry mereka
-                </p>
-
+                <p className="text-xs text-gray-400 mb-6">Berikan kode ini ke pelanggan untuk tracking status laundry mereka</p>
                 <div className="flex gap-3 w-full">
-                  <button
-                    onClick={() => {
-                      setSuccessInfo(null)
-                      setForm({ ...emptyForm, service_id: form.service_id })
-                    }}
-                    className="btn-secondary flex-1"
-                  >
+                  <button onClick={() => { setSuccessInfo(null); setForm({ ...emptyForm, service_id: form.service_id }) }} className="btn-secondary flex-1">
                     + Pesanan Lagi
                   </button>
-                  <button onClick={closeModal} className="btn-primary flex-1">
-                    Selesai
-                  </button>
+                  <button onClick={closeModal} className="btn-primary flex-1">Selesai</button>
                 </div>
               </div>
             ) : (
-              /* Form */
               <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
                 <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-
-                  {/* Sumber pesanan */}
                   <div>
                     <label className="label">Sumber Pesanan</label>
                     <div className="grid grid-cols-3 gap-2">
                       {sourceOptions.map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setForm({ ...form, order_source: opt.value })}
-                          className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all text-center ${
-                            form.order_source === opt.value
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
-                          }`}
-                        >
+                        <button key={opt.value} type="button" onClick={() => setForm({ ...form, order_source: opt.value })}
+                          className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all text-center ${form.order_source === opt.value ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`}>
                           {opt.label}
                         </button>
                       ))}
                     </div>
                   </div>
-
-                  {/* Info pelanggan */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2 sm:col-span-1">
                       <label className="label">Nama Pelanggan <span className="text-red-400">*</span></label>
-                      <input
-                        type="text"
-                        value={form.customer_name}
-                        onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
-                        className="input"
-                        placeholder="Nama lengkap"
-                        required
-                      />
+                      <input type="text" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} className="input" placeholder="Nama lengkap" required />
                     </div>
                     <div className="col-span-2 sm:col-span-1">
                       <label className="label">No. WhatsApp</label>
-                      <input
-                        type="tel"
-                        value={form.customer_phone}
-                        onChange={(e) => setForm({ ...form, customer_phone: e.target.value })}
-                        className="input"
-                        placeholder="08xxxxxxxxxx"
-                      />
+                      <input type="tel" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} className="input" placeholder="08xxxxxxxxxx" />
                     </div>
                   </div>
-
                   <div>
                     <label className="label">Alamat <span className="text-gray-400 font-normal text-xs">(opsional)</span></label>
-                    <input
-                      type="text"
-                      value={form.customer_address}
-                      onChange={(e) => setForm({ ...form, customer_address: e.target.value })}
-                      className="input"
-                      placeholder="Alamat pelanggan"
-                    />
+                    <input type="text" value={form.customer_address} onChange={(e) => setForm({ ...form, customer_address: e.target.value })} className="input" placeholder="Alamat pelanggan" />
                   </div>
-
-                  {/* Layanan & berat */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="label">Layanan <span className="text-red-400">*</span></label>
-                      <select
-                        value={form.service_id}
-                        onChange={(e) => setForm({ ...form, service_id: e.target.value })}
-                        className="input"
-                        required
-                      >
-                        {services.length === 0
-                          ? <option value="">Memuat...</option>
-                          : services.map(s => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
-                            ))
-                        }
+                      <select value={form.service_id} onChange={(e) => setForm({ ...form, service_id: e.target.value })} className="input" required>
+                        {services.length === 0 ? <option value="">Memuat...</option> : services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="label">Berat (kg) <span className="text-red-400">*</span></label>
-                      <input
-                        type="number"
-                        value={form.weight}
-                        onChange={(e) => setForm({ ...form, weight: e.target.value })}
-                        className="input"
-                        placeholder="Contoh: 3"
-                        required
-                        min="0.5"
-                        step="0.5"
-                      />
+                      <input type="number" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} className="input" placeholder="Contoh: 3" required min="0.5" step="0.5" />
                     </div>
                   </div>
-
-                  {/* Estimasi harga */}
                   {estimatedPrice !== null && estimatedPrice > 0 && (
                     <div className="bg-blue-50 rounded-xl px-4 py-3 flex items-center justify-between">
                       <div>
                         <p className="text-xs text-blue-500 font-medium">Estimasi Total</p>
-                        <p className="text-xl font-bold text-blue-700">
-                          Rp{estimatedPrice.toLocaleString('id-ID')}
-                        </p>
+                        <p className="text-xl font-bold text-blue-700">Rp{estimatedPrice.toLocaleString('id-ID')}</p>
                       </div>
                       {selectedService && (
                         <div className="text-right">
@@ -355,24 +487,13 @@ const Orders = () => {
                       )}
                     </div>
                   )}
-
                   <div>
                     <label className="label">Catatan <span className="text-gray-400 font-normal text-xs">(opsional)</span></label>
-                    <textarea
-                      value={form.note}
-                      onChange={(e) => setForm({ ...form, note: e.target.value })}
-                      className="input resize-none"
-                      rows="2"
-                      placeholder="Contoh: ada karpet, jaket tebal, jangan diperas"
-                    />
+                    <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className="input resize-none" rows="2" placeholder="Contoh: ada karpet, jaket tebal, jangan diperas" />
                   </div>
                 </div>
-
-                {/* Modal footer */}
                 <div className="flex gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0">
-                  <button type="button" onClick={closeModal} className="btn-secondary flex-1">
-                    Batal
-                  </button>
+                  <button type="button" onClick={closeModal} className="btn-secondary flex-1">Batal</button>
                   <button type="submit" disabled={submitting || services.length === 0} className="btn-primary flex-1">
                     {submitting ? (
                       <span className="flex items-center gap-2">
