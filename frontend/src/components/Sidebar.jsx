@@ -1,4 +1,5 @@
 import React from 'react'
+import laundryfoto from '../assets/laundryfoto.jpg'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -51,8 +52,8 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
       `}>
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-gray-100">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
-            <span className="text-xl">🧺</span>
+          <div className="w-10 h-10 rounded-2xl overflow-hidden shadow-lg shadow-blue-200 flex-shrink-0">
+            <img src={laundryfoto} alt="LaundryFlow" className="w-full h-full object-cover" />
           </div>
           <div>
             <p className="text-base font-bold text-gray-900 leading-tight">LaundryFlow</p>

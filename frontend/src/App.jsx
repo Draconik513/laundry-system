@@ -2,12 +2,14 @@ import React from 'react'
 import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './context/AuthContext'
+import { NotificationProvider } from './context/NotificationContext'
 import Router from './routes/Router'
 
 function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <NotificationProvider>
         <div className="min-h-screen bg-gray-50">
           <Router />
           <Toaster 
@@ -33,6 +35,7 @@ function App() {
             }}
           />
         </div>
+        </NotificationProvider>
       </AuthProvider>
     </BrowserRouter>
   )

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
+import laundryfoto from '../assets/laundryfoto.jpg'
 
 const Login = () => {
   const [email, setEmail] = useState('')
@@ -31,8 +32,8 @@ const Login = () => {
       {/* Left panel - branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 flex-col justify-between p-12">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
-            <span className="text-2xl">🧺</span>
+          <div className="w-10 h-10 rounded-2xl overflow-hidden flex-shrink-0">
+            <img src={laundryfoto} alt="LaundryFlow" className="w-full h-full object-cover" />
           </div>
           <span className="text-white font-bold text-xl">LaundryFlow</span>
         </div>
@@ -59,8 +60,8 @@ const Login = () => {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md">
           <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center">
-              <span className="text-xl">🧺</span>
+            <div className="w-10 h-10 rounded-2xl overflow-hidden flex-shrink-0">
+              <img src={laundryfoto} alt="LaundryFlow" className="w-full h-full object-cover" />
             </div>
             <span className="font-bold text-xl text-gray-900">LaundryFlow</span>
           </div>
@@ -102,6 +103,11 @@ const Login = () => {
                   {showPassword ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
                 </button>
               </div>
+            </div>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
+              <p className="font-semibold text-blue-800 mb-1">🔑 Akun Demo</p>
+              <p>Email: <span className="font-mono font-bold select-all">admin@laundry.com</span></p>
+              <p>Password: <span className="font-mono font-bold select-all">admin123</span></p>
             </div>
             <button type="submit" disabled={loading} className="btn-primary w-full py-3 mt-2">
               {loading ? (
